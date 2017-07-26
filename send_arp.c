@@ -3,6 +3,16 @@
 #include <netinet/in.h>
 #include <stdint.h>
 #include <string.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <string.h> /* for strncpy */
+
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/ioctl.h>
+#include <netinet/in.h>
+#include <net/if.h>
+#include <arpa/inet.h>
 
 #define ETHERTYPE_IP 0x0800
 #define ETHERTYPE_ARP 0x0806
@@ -96,7 +106,7 @@ int main(int argc, char *argv[])
 	int pcap_ret = 0;
 	unsigned short my_arp_op = 0;
 	uint32_t tmp;
-	
+	struct in_addr my_IP;
 	int data_len = 0; // caplen - sizeof(eth) - sizeof(ip) - sizeof(tcp) = data len
 
 	my_peth ehdr_pointer = NULL;
@@ -123,7 +133,57 @@ int main(int argc, char *argv[])
 
 	char my_packet_buf[60] = {0, };
 
+	int fd;
+	struct ifreq ifr;
+	struct ifconf ifc;
+	char buf[1024];
+	int success = 0;
+	
+	int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+	if (sock == -1) { /* handle error*/ };
+	
+	ifc.ifc_len = sizeof(buf);
+	ifc.ifc_buf = buf;
+	if (ioctl(sock, SIOCGIFCONF, &ifc) == -1) { /* handle error */ }
+	
+	struct ifreq* it = ifc.ifc_req;
+	const struct ifreq* const end = it + (ifc.ifc_len / sizeof(struct ifreq));
+	
+	for (; it != end; ++it) {
+		strcpy(ifr.ifr_name, it->ifr_name);
+		if (ioctl(sock, SIOCGIFFLAGS, &ifr) == 0) {
+			if (! (ifr.ifr_flags & IFF_LOOPBACK)) { // don't count loopback
+				if (ioctl(sock, SIOCGIFHWADDR, &ifr) == 0) {
+					success = 1;
+					break;
+				}
+			}
+		}
+		else { /* handle error */ }
+	}
 
+	unsigned char mac_address[6];
+	
+	if (success) memcpy(mac_address, ifr.ifr_hwaddr.sa_data, 6);
+
+	fd = socket(AF_INET, SOCK_DGRAM, 0);
+	
+	/* I want to get an IPv4 IP address */
+	ifr.ifr_addr.sa_family = AF_INET;
+	
+	/* I want IP address attached to "eth0" */
+	strncpy(ifr.ifr_name, argv[1], IFNAMSIZ-1);
+	
+	ioctl(fd, SIOCGIFADDR, &ifr);
+	
+	close(fd);
+	
+	/* display result */
+	printf("%s\n", inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr));
+
+	my_IP = ((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr;
+
+	printf("%s\n", inet_ntoa(my_IP));
 	if(argc != 4)
 	{
 		printf("usage  : %s <device_name> <sender IP> <gateway IP>\n", argv[0]);
@@ -157,7 +217,7 @@ int main(int argc, char *argv[])
 	ehdr_pointer = (my_peth)my_packet_buf;
 
 	memcpy(ehdr_pointer->ether_dmac, "\xff\xff\xff\xff\xff\xff", 6 * sizeof(uint8_t));
-	memcpy(ehdr_pointer->ether_smac, "\x00\x50\x56\x23\xff\xdf", 6 * sizeof(uint8_t));
+	memcpy(ehdr_pointer->ether_smac, mac_address, 6 * sizeof(uint8_t));
 	ehdr_pointer->ether_type = htons(0x0806);
 
 	arphdr_pointer = (my_parp)(my_packet_buf + sizeof(my_eth));
@@ -168,8 +228,8 @@ int main(int argc, char *argv[])
 	arphdr_pointer->ar_pln = 0x04;
 	arphdr_pointer->ar_op = htons(0x0001);
 
-	memcpy(arphdr_pointer->arp_sha, "\x00\x50\x56\x23\xff\xdf", 6 * sizeof(uint8_t));
-	memcpy(arphdr_pointer->arp_spa, "\xc0\xa8\xc8\x80", 4 * sizeof(uint8_t));
+	memcpy(arphdr_pointer->arp_sha, mac_address, 6 * sizeof(uint8_t));
+	memcpy(arphdr_pointer->arp_spa, &my_IP, 4 * sizeof(uint8_t));
 	memcpy(arphdr_pointer->arp_tha, "\x00\x00\x00\x00\x00\x00", 6 * sizeof(uint8_t));
 	memcpy(arphdr_pointer->arp_tpa, &sender_IP, 4 * sizeof(uint8_t));
 
@@ -228,7 +288,7 @@ int main(int argc, char *argv[])
 	ehdr_pointer = (my_peth)my_packet_buf;
 
 	memcpy(ehdr_pointer->ether_dmac, "\xff\xff\xff\xff\xff\xff", 6 * sizeof(uint8_t));
-	memcpy(ehdr_pointer->ether_smac, "\x00\x50\x56\x23\xff\xdf", 6 * sizeof(uint8_t));
+	memcpy(ehdr_pointer->ether_smac, mac_address, 6 * sizeof(uint8_t));
 	ehdr_pointer->ether_type = htons(0x0806);
 
 	arphdr_pointer = (my_parp)(my_packet_buf + sizeof(my_eth));
@@ -239,8 +299,8 @@ int main(int argc, char *argv[])
 	arphdr_pointer->ar_pln = 0x04;
 	arphdr_pointer->ar_op = htons(0x0001);
 
-	memcpy(arphdr_pointer->arp_sha, "\x00\x50\x56\x23\xff\xdf", 6 * sizeof(uint8_t));
-	memcpy(arphdr_pointer->arp_spa, "\xc0\xa8\xc8\x80", 4 * sizeof(uint8_t));
+	memcpy(arphdr_pointer->arp_sha, mac_address, 6 * sizeof(uint8_t));
+	memcpy(arphdr_pointer->arp_spa, &my_IP, 4 * sizeof(uint8_t));
 	memcpy(arphdr_pointer->arp_tha, "\x00\x00\x00\x00\x00\x00", 6 * sizeof(uint8_t));
 	memcpy(arphdr_pointer->arp_tpa, &gateway_IP, 4 * sizeof(uint8_t));
 
@@ -396,7 +456,6 @@ void print_arp_info(my_parp arphdr_pointer)
 		printf("%02x", arphdr_pointer->arp_tha[j]);
 		printf("%c", j==5 ? '\n' : ':');
 	}
+
 }
-
-
 
