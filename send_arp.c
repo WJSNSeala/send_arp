@@ -92,12 +92,12 @@ void Print_extra_data(u_char *str, int len);
 int main(int argc, char *argv[])
 {
 	pcap_t *handle;		/* Session handle */
-	char *dev;			/* The device to sniff on */
+				/* The device to sniff on */
 	char errbuf[PCAP_ERRBUF_SIZE];	/* Error string */
 	struct bpf_program fp;		/* The compiled filter */
 	char filter_exp[] = "arp";	/* The filter expression */
-	bpf_u_int32 mask;		/* Our netmask */
-	bpf_u_int32 net;		/* Our IP */
+	
+	bpf_u_int32 net = 0;		/* Our IP */
 	struct pcap_pkthdr *header;
 	uint32_t sender_IP, gateway_IP;
 	uint8_t sender_MAC[6] = {0, };
@@ -107,31 +107,16 @@ int main(int argc, char *argv[])
 	unsigned short my_arp_op = 0;
 	uint32_t tmp;
 	struct in_addr my_IP;
-	int data_len = 0; // caplen - sizeof(eth) - sizeof(ip) - sizeof(tcp) = data len
 
 	my_peth ehdr_pointer = NULL;
-	my_pip iphdr_pointer = NULL;
-	my_ptcp tcphdr_pointer = NULL;
 	my_parp arphdr_pointer = NULL;
 
-	void* tmp_ptr = NULL;
-
-	u_char *data_pointer = NULL;
 
 	int i = 50;
-	int j = 0;
 
 	short eth_type = 0;
-	char ip_type = 0;
 
-	char cmd[256] = {0, };
-
-	char MACbuf[20] = {0, };
-
-	char ip_dst[20] = {0, };
-	char ip_src[20] = {0, };
-
-	char my_packet_buf[60] = {0, };
+	unsigned char my_packet_buf[60] = {0, };
 
 	int fd;
 	struct ifreq ifr;
@@ -198,7 +183,7 @@ int main(int argc, char *argv[])
 	/* Open the session in promiscuous mode */
 	handle = pcap_open_live(argv[1], BUFSIZ, 1, 1000, errbuf);
 	if (handle == NULL) {
-		fprintf(stderr, "Couldn't open device %s: %s\n", dev, errbuf);
+		fprintf(stderr, "Couldn't open device %s: %s\n", argv[1], errbuf);
 		return(2);
 	}
 	/* Compile and apply the filter */
@@ -382,9 +367,6 @@ int main(int argc, char *argv[])
 	memcpy(arphdr_pointer->arp_spa, &gateway_IP, 4 * sizeof(uint8_t));
 	memcpy(arphdr_pointer->arp_tha, sender_MAC, 6 * sizeof(uint8_t));
 	memcpy(arphdr_pointer->arp_tpa, &sender_IP, 4 * sizeof(uint8_t));
-
-	Print_Ether_Info(ehdr_pointer);
-	print_arp_info(arphdr_pointer);
 
 	for(i=0;i<100;i++)
 		pcap_sendpacket(handle, my_packet_buf, 60);
